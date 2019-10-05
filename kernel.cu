@@ -6,31 +6,30 @@
 #include <stdlib.h>
 
 #include "lodepng.h"
-#define SIZE 1024
-#define THREADS_PER_BLOCK 128
+#define NUM_THREADS 1
 
-__global__ void pixelKernel(unsigned char* image, unsigned char* new_image, unsigned width, unsigned height, int counter, int size)
+__global__ void rectifyKernel(unsigned char* image, unsigned char* new_image, unsigned width, unsigned height, int counter, int threads)
 {
 	int i = threadIdx.x;
 
-	if (i < size) {
-		if (image[(counter * size + i) * 4] >= 127) // R
-			new_image[(counter * size + i) * 4] = image[(counter * size + i) * 4];
-		else new_image[(counter * size + i) * 4] = 127;
+	if (i < threads) {
+		if (image[(counter * threads + i) * 4] >= 127) // R
+			new_image[(counter * threads + i) * 4] = image[(counter * threads + i) * 4];
+		else new_image[(counter * threads + i) * 4] = 127;
 
-		if (image[(counter * size + i) * 4 + 1] >= 127) // G
-			new_image[(counter * size + i) * 4 + 1] = image[(counter * size + i) * 4 + 1];
-		else new_image[(counter * size + i) * 4 + 1] = 127;
+		if (image[(counter * threads + i) * 4 + 1] >= 127) // G
+			new_image[(counter * threads + i) * 4 + 1] = image[(counter * threads + i) * 4 + 1];
+		else new_image[(counter * threads + i) * 4 + 1] = 127;
 
-		if (image[(counter * size + i) * 4 + 2] >= 127) // B
-			new_image[(counter * size + i) * 4 + 2] = image[(counter * size + i) * 4 + 2];
-		else new_image[(counter * size + i) * 4 + 2] = 127;
+		if (image[(counter * threads + i) * 4 + 2] >= 127) // B
+			new_image[(counter * threads + i) * 4 + 2] = image[(counter * threads + i) * 4 + 2];
+		else new_image[(counter * threads + i) * 4 + 2] = 127;
 
-		new_image[(counter * size + i) * 4 + 3] = image[(counter * size + i) * 4 + 3]; // A
+		new_image[(counter * threads + i) * 4 + 3] = image[(counter * threads + i) * 4 + 3]; // A
 	}
 }
 
-void process(char* input_filename, char* output_filename)
+void rectify(char* input_filename, char* output_filename)
 {
 	unsigned error;
 	unsigned char* image, * new_image;
@@ -66,27 +65,26 @@ void process(char* input_filename, char* output_filename)
 	cudaSetDevice(0);
 
 	unsigned char* image_dev;
-	cudaMallocManaged((void**)&image_dev, SIZE * width * height * 4 * sizeof(unsigned char));
-	cudaMallocManaged((void**)&new_image, SIZE * width * height * 4 * sizeof(unsigned char));
+	cudaMallocManaged((void**)&image_dev, NUM_THREADS * width * height * 4 * sizeof(unsigned char));
+	cudaMallocManaged((void**)&new_image, NUM_THREADS * width * height * 4 * sizeof(unsigned char));
 	for (int i = 0; i < width * height * 4; i++) {
 		image_dev[i] = image[i];
 		new_image[i] = 0;
 	}
 
-	for (int i = 0; i < width * height / SIZE; i++) {
-		pixelKernel << <1, SIZE >> > (image_dev, new_image, width, height, i, SIZE);
+	for (int counter = 0; counter < width * height / NUM_THREADS; counter++) {
+		rectifyKernel << <1, NUM_THREADS >> > (image_dev, new_image, width, height, counter, NUM_THREADS);
 	}
 
 	cudaDeviceSynchronize();
 	//cudaFree(image); cudaFree(new_image); cudaFree(width_p); cudaFree(height_p); cudaFree(image_dev); cudaFree(new_image_dev);
-	////////////////////////////////////////////////////////////////////////////////////////
+	//////////////////////////////////////////////////////////////////////////////////
 
 	lodepng_encode32_file(output_filename, new_image, width, height);
 	cudaFree(image); cudaFree(new_image); cudaFree(image_dev);
 	free(image);
 	//free(new_image);
 	//free(image_dev);
-	//free(new_image_dev);
 }
 
 int main()
@@ -95,7 +93,7 @@ int main()
 	char* input_filename = "test.png";
 	char* output_filename = "test rectify.png";
 
-	process(input_filename, output_filename);
+	rectify(input_filename, output_filename);
 
 	return 0;
 
