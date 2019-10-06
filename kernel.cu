@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include <time.h>
 #include "lodepng.h"
 #define NUM_THREADS 1
 
@@ -34,6 +35,7 @@ void rectify(char* input_filename, char* output_filename)
 	unsigned error;
 	unsigned char* image, * new_image;
 	unsigned width, height;
+
 
 	error = lodepng_decode32_file(&image, &width, &height, input_filename);
 	if (error) printf("error %u: %s\n", error, lodepng_error_text(error));
@@ -70,13 +72,17 @@ void rectify(char* input_filename, char* output_filename)
 	for (int i = 0; i < width * height * 4; i++) {
 		image_dev[i] = image[i];
 		new_image[i] = 0;
-	}
+	} 
 
+
+	
 	for (int counter = 0; counter < width * height / NUM_THREADS; counter++) {
 		rectifyKernel << <1, NUM_THREADS >> > (image_dev, new_image, width, height, counter, NUM_THREADS);
 	}
 
-	cudaDeviceSynchronize();
+
+
+		cudaDeviceSynchronize();
 	//cudaFree(image); cudaFree(new_image); cudaFree(width_p); cudaFree(height_p); cudaFree(image_dev); cudaFree(new_image_dev);
 	//////////////////////////////////////////////////////////////////////////////////
 
@@ -93,7 +99,14 @@ int main()
 	char* input_filename = "test.png";
 	char* output_filename = "test rectify.png";
 
+	clock_t start, end;
+	start = clock();
+
+
 	rectify(input_filename, output_filename);
+	end = clock();
+	printf("time=%f\n", (double)(end - start) / CLOCKS_PER_SEC);
+
 
 	return 0;
 
