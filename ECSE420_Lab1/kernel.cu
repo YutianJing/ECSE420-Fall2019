@@ -6,38 +6,44 @@
 #include <stdlib.h>
 
 #include "lodepng.h"
-#define NUM_THREADS 1024
-
+#define NUM_THREADS 4096
 __global__ void rectify(unsigned char* image, unsigned char* new_image, int round, int numThreads)
 {
-	int i = threadIdx.x;
-	
+	//int i = threadIdx.x;
+	int i = blockIdx.x * blockDim.x + threadIdx.x;
+	//int magicNumber = (numThreads / 1024) * 1024;
+	int magicNumber = NUM_THREADS;
+
 	if (i < numThreads) {
-		if (image[(round * numThreads + i) * 4] >= 127) // R
-			new_image[(round * numThreads + i) * 4] = image[(round * numThreads + i) * 4];
-		else new_image[(round * numThreads + i) * 4] = 127;
+		
+		if (image[(round * magicNumber + i) * 4] >= 127) // R
+			new_image[(round * magicNumber + i) * 4] = image[(round * magicNumber + i) * 4];
+		else new_image[(round * magicNumber + i) * 4] = 127;
 
-		if (image[(round * numThreads + i) * 4 + 1] >= 127) // G
-			new_image[(round * numThreads + i) * 4 + 1] = image[(round * numThreads + i) * 4 + 1];
-		else new_image[(round * numThreads + i) * 4 + 1] = 127;
+		if (image[(round * magicNumber + i) * 4 + 1] >= 127) // G
+			new_image[(round * magicNumber + i) * 4 + 1] = image[(round * magicNumber + i) * 4 + 1];
+		else new_image[(round * magicNumber + i) * 4 + 1] = 127;
 
-		if (image[(round * numThreads + i) * 4 + 2] >= 127) // B
-			new_image[(round * numThreads + i) * 4 + 2] = image[(round * numThreads + i) * 4 + 2];
-		else new_image[(round * numThreads + i) * 4 + 2] = 127;
+		if (image[(round * magicNumber + i) * 4 + 2] >= 127) // B
+			new_image[(round * magicNumber + i) * 4 + 2] = image[(round * magicNumber + i) * 4 + 2];
+		else new_image[(round * magicNumber + i) * 4 + 2] = 127;
 
-		new_image[(round * numThreads + i) * 4 + 3] = image[(round * numThreads + i) * 4 + 3]; // A
+		new_image[(round * magicNumber + i) * 4 + 3] = image[(round * magicNumber + i) * 4 + 3]; // A
 	}
 }
 
 __global__ void pool(unsigned char* image, unsigned char* new_image, unsigned width, unsigned height, int round, int numThreads)
 {
-	int i = threadIdx.x;
+	//int i = threadIdx.x;
+	int i = blockIdx.x * blockDim.x + threadIdx.x;
+	//int magicNumber = (numThreads / 1024) * 1024;
+	int magicNumber = NUM_THREADS;
 	unsigned char tl, tr, bl, br, max;
 	unsigned offset;
 
 	if (i < numThreads) {
 		for (int k = 0; k < 4; k++) {
-			offset = round * numThreads * 2 + i * 2;
+			offset = round * magicNumber * 2 + i * 2;
 			offset += width * (offset / width);
 
 			tl = image[(offset) * 4 + k];
@@ -52,7 +58,7 @@ __global__ void pool(unsigned char* image, unsigned char* new_image, unsigned wi
 			if (bl > max) max = bl;
 			if (br > max) max = br;
 
-			new_image[(round * numThreads + i) * 4 + k] = max;
+			new_image[(round * magicNumber + i) * 4 + k] = max;
 		}
 	}
 }
@@ -100,9 +106,12 @@ void imageRectify(char* input_filename, char* output_filename)
 		new_image[i] = 0;
 	}
 
-	for (int round = 0; round < width * height / NUM_THREADS; round++) {
-		rectify << <1, NUM_THREADS >> > (image_dev, new_image, round, NUM_THREADS);
+	int round = 0;
+	while (round < width * height / NUM_THREADS) {
+		rectify << <(int)ceil((NUM_THREADS + 1023) / 1024), 1024 >> > (image_dev, new_image, round, NUM_THREADS);
+		round++;
 	}
+		rectify << <(int)ceil((NUM_THREADS + 1023) / 1024), (height * width) % 1024 >> > (image_dev, new_image, round, NUM_THREADS);
 
 	cudaDeviceSynchronize();
 	//cudaFree(image); cudaFree(new_image); cudaFree(width_p); cudaFree(height_p); cudaFree(image_dev); cudaFree(new_image_dev);
@@ -137,9 +146,12 @@ void imagePooling(char* input_filename, char* output_filename)
 	}
 	for (int i = 0; i < width * height; i++) new_image[i] = 0;
 
-	for (int round = 0; round < width * height / NUM_THREADS / 4; round++) {
-		pool << <1, NUM_THREADS >> > (image_dev, new_image, width, height, round, NUM_THREADS);
+	int round = 0;
+	while (round < width * height / NUM_THREADS / 4) {
+		pool << <(int)ceil((NUM_THREADS + 1023) / 1024), 1024 >> > (image_dev, new_image, width, height, round, NUM_THREADS);
+		round++;
 	}
+		pool << <(int)ceil((NUM_THREADS + 1023) / 1024), (height * width) % 1024 >> > (image_dev, new_image, width, height, round, NUM_THREADS);
 
 	cudaDeviceSynchronize();
 	//////////////////////////////////////////////////////////////////////////////////
