@@ -4,12 +4,12 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 
 #include "lodepng.h"
-#define NUM_THREADS 4096
+#define NUM_THREADS 256
 __global__ void rectify(unsigned char* image, unsigned char* new_image, int round, int numThreads)
 {
-	//int i = threadIdx.x;
 	int i = blockIdx.x * blockDim.x + threadIdx.x;
 	//int magicNumber = (numThreads / 1024) * 1024;
 	int magicNumber = NUM_THREADS;
@@ -34,7 +34,6 @@ __global__ void rectify(unsigned char* image, unsigned char* new_image, int roun
 
 __global__ void pool(unsigned char* image, unsigned char* new_image, unsigned width, unsigned height, int round, int numThreads)
 {
-	//int i = threadIdx.x;
 	int i = blockIdx.x * blockDim.x + threadIdx.x;
 	//int magicNumber = (numThreads / 1024) * 1024;
 	int magicNumber = NUM_THREADS;
@@ -93,7 +92,8 @@ void imageRectify(char* input_filename, char* output_filename)
 
 	//	}
 	//}
-	
+	//clock_t start, end;
+	//start = clock();
 	////////////////////////////////////////////////////////////////////////////////
 	// parallel way of rectifying
 	cudaSetDevice(0);
@@ -115,6 +115,8 @@ void imageRectify(char* input_filename, char* output_filename)
 
 	cudaDeviceSynchronize();
 	//cudaFree(image); cudaFree(new_image); cudaFree(width_p); cudaFree(height_p); cudaFree(image_dev); cudaFree(new_image_dev);
+	//end = clock();
+	//printf("time=%f\n", (double)(end - start) / (double)CLOCKS_PER_SEC);
 	//////////////////////////////////////////////////////////////////////////////////
 
 	lodepng_encode32_file(output_filename, new_image, width, height);
@@ -134,6 +136,8 @@ void imagePooling(char* input_filename, char* output_filename)
 	if (error) printf("error %u: %s\n", error, lodepng_error_text(error));
 	new_image = (unsigned char*)malloc(width * height * sizeof(unsigned char));
 
+	clock_t start, end;
+	start = clock();
 	////////////////////////////////////////////////////////////////////////////////
 	// parallel way of pooling
 	cudaSetDevice(0);
@@ -154,6 +158,8 @@ void imagePooling(char* input_filename, char* output_filename)
 		pool << <(int)ceil((NUM_THREADS + 1023) / 1024), (height * width) % 1024 >> > (image_dev, new_image, width, height, round, NUM_THREADS);
 
 	cudaDeviceSynchronize();
+	end = clock();
+	printf("time=%f\n", (double)(end - start) / (double)CLOCKS_PER_SEC);
 	//////////////////////////////////////////////////////////////////////////////////
 
 	lodepng_encode32_file(output_filename, new_image, width / 2, height / 2);
