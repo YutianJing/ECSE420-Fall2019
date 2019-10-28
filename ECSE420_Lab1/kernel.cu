@@ -8,13 +8,13 @@
 
 #include "lodepng.h"
 #define NUM_THREADS 256
-__global__ void rectify(unsigned char* image, unsigned char* new_image, int round, int numThreads)
+__global__ void rectify(unsigned char* image, unsigned char* new_image, int round)
 {
 	int i = blockIdx.x * blockDim.x + threadIdx.x;
 	//int magicNumber = (numThreads / 1024) * 1024;
 	int magicNumber = NUM_THREADS;
 
-	if (i < numThreads) {
+	if (i < NUM_THREADS) {
 		
 		if (image[(round * magicNumber + i) * 4] >= 127) // R
 			new_image[(round * magicNumber + i) * 4] = image[(round * magicNumber + i) * 4];
@@ -32,7 +32,7 @@ __global__ void rectify(unsigned char* image, unsigned char* new_image, int roun
 	}
 }
 
-__global__ void pool(unsigned char* image, unsigned char* new_image, unsigned width, unsigned height, int round, int numThreads)
+__global__ void pool(unsigned char* image, unsigned char* new_image, unsigned width, unsigned height, int round)
 {
 	int i = blockIdx.x * blockDim.x + threadIdx.x;
 	//int magicNumber = (numThreads / 1024) * 1024;
@@ -40,7 +40,7 @@ __global__ void pool(unsigned char* image, unsigned char* new_image, unsigned wi
 	unsigned char tl, tr, bl, br, max;
 	unsigned offset;
 
-	if (i < numThreads) {
+	if (i < NUM_THREADS) {
 		for (int k = 0; k < 4; k++) {
 			offset = round * magicNumber * 2 + i * 2;
 			offset += width * (offset / width);
@@ -108,10 +108,10 @@ void imageRectify(char* input_filename, char* output_filename)
 
 	int round = 0;
 	while (round < width * height / NUM_THREADS) {
-		rectify << <(int)ceil((NUM_THREADS + 1023) / 1024), 1024 >> > (image_dev, new_image, round, NUM_THREADS);
+		rectify << <(int)ceil((NUM_THREADS + 1023) / 1024), 1024 >> > (image_dev, new_image, round);
 		round++;
 	}
-		rectify << <(int)ceil((NUM_THREADS + 1023) / 1024), (height * width) % 1024 >> > (image_dev, new_image, round, NUM_THREADS);
+		rectify << <(int)ceil((NUM_THREADS + 1023) / 1024), (height * width) % 1024 >> > (image_dev, new_image, round);
 
 	cudaDeviceSynchronize();
 	//cudaFree(image); cudaFree(new_image); cudaFree(width_p); cudaFree(height_p); cudaFree(image_dev); cudaFree(new_image_dev);
@@ -152,10 +152,10 @@ void imagePooling(char* input_filename, char* output_filename)
 
 	int round = 0;
 	while (round < width * height / NUM_THREADS / 4) {
-		pool << <(int)ceil((NUM_THREADS + 1023) / 1024), 1024 >> > (image_dev, new_image, width, height, round, NUM_THREADS);
+		pool << <(int)ceil((NUM_THREADS + 1023) / 1024), 1024 >> > (image_dev, new_image, width, height, round);
 		round++;
 	}
-		pool << <(int)ceil((NUM_THREADS + 1023) / 1024), (height * width) % 1024 >> > (image_dev, new_image, width, height, round, NUM_THREADS);
+		pool << <(int)ceil((NUM_THREADS + 1023) / 1024), (height * width) % 1024 >> > (image_dev, new_image, width, height, round);
 
 	cudaDeviceSynchronize();
 	end = clock();
