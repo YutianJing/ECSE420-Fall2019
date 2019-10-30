@@ -14,8 +14,8 @@
 #include "b_32.h"
 #include "b_512.h"
 #include "b_1024.h"
-#define NUM_THREADS 1024
-#define wmDimension 3
+#define NUM_THREADS 4096
+#define wmDimension 7
 
 __global__ void convolve(unsigned char* image, unsigned char* new_image, unsigned width, unsigned height, int round, float* wm_dev)
 {
@@ -28,8 +28,9 @@ __global__ void convolve(unsigned char* image, unsigned char* new_image, unsigne
 		for (int k = 0; k < 4; k++) {
 			offset = round * NUM_THREADS + i;
 			//offset += width * (offset / width);
-			
-			if (offset % width < (width - wmDimension + 1) && offset < width * (height - wmDimension + 1)) {
+			//offset -= offset % (width - wmDimension);
+
+			if ((offset % width) < (width - wmDimension + 1) && offset < width * (height - wmDimension + 1)) {
 				sum = 0;
 				for (int j = 0; j < wmDimension * wmDimension; j++) {
 					patch[j] = image[(offset + width * (j / wmDimension) + (j - wmDimension * (j / wmDimension))) * 4 + k];
@@ -40,9 +41,9 @@ __global__ void convolve(unsigned char* image, unsigned char* new_image, unsigne
 				}
 				if (sum < 0.0) sum = 0;
 				if (sum > 255.0) sum = 255;
-				if (k == 3) sum = 255;
+				if (k == 3) sum = image[offset * 4 + k];
 
-				new_image[offset * 4 + k] = sum;
+				new_image[(offset - (offset / width) * (wmDimension - 1)) * 4 + k] = sum;
 			}
 		}
 	}
@@ -83,11 +84,11 @@ void imageConvolution(char* input_filename, char* output_filename)
 
 	int round = 0;
 	int numBlocks = (int)ceil(((double)NUM_THREADS + (double)1023) / (double)1024);
-	while (round < (width - wmDimension + 1) * (height - wmDimension + 1) / NUM_THREADS) {
+	while (round < width * height / NUM_THREADS) {
 		convolve << <numBlocks, 1024 >> > (image_dev, new_image, width, height, round, wm_dev);
 		round++;
 	}
-	//convolve << <numBlocks, (height * width) % 1024 >> > (image_dev, new_image, width, height, round, w3, w5, w7);
+	//convolve << <numBlocks, (height * width) % 1024 >> > (image_dev, new_image, width, height, round, wm_dev);
 
 	cudaDeviceSynchronize();
 	////////////////////////////////////////////////////////////////////////////////
