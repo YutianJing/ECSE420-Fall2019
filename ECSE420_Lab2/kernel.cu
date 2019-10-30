@@ -8,6 +8,12 @@
 
 #include "lodepng.h"
 #include "wm.h"
+#include "A_32.h"
+#include "A_512.h"
+#include "A_1024.h"
+#include "b_32.h"
+#include "b_512.h"
+#include "b_1024.h"
 #define NUM_THREADS 1024
 #define wmDimension 3
 
@@ -17,19 +23,19 @@ __global__ void convolve(unsigned char* image, unsigned char* new_image, unsigne
 	float patch[wmDimension * wmDimension];
 	float sum;
 	unsigned offset;
-
+	//printf("%d\n", round);
 	if (i < NUM_THREADS) {
 		for (int k = 0; k < 4; k++) {
 			offset = round * NUM_THREADS + i;
 			//offset += width * (offset / width);
-
+			
 			if (offset % width < (width - wmDimension + 1) && offset < width * (height - wmDimension + 1)) {
 				sum = 0;
 				for (int j = 0; j < wmDimension * wmDimension; j++) {
 					patch[j] = image[(offset + width * (j / wmDimension) + (j - wmDimension * (j / wmDimension))) * 4 + k];
 
 					patch[j] = patch[j] * wm_dev[j];
-					
+
 					sum += patch[j];
 				}
 				if (sum < 0.0) sum = 0;

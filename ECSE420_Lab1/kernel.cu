@@ -7,7 +7,7 @@
 #include <time.h>
 
 #include "lodepng.h"
-#define NUM_THREADS 2
+#define NUM_THREADS 1
 __global__ void rectify(unsigned char* image, unsigned char* new_image, int round)
 {
 	int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -39,7 +39,7 @@ __global__ void pool(unsigned char* image, unsigned char* new_image, unsigned wi
 	int magicNumber = NUM_THREADS;
 	unsigned char tl, tr, bl, br, max;
 	unsigned offset;
-
+	
 	if (i < NUM_THREADS) {
 		for (int k = 0; k < 4; k++) {
 			offset = round * magicNumber * 2 + i * 2;
