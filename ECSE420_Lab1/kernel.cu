@@ -7,7 +7,7 @@
 #include <time.h>
 
 #include "lodepng.h"
-#define NUM_THREADS 256
+#define NUM_THREADS 2
 __global__ void rectify(unsigned char* image, unsigned char* new_image, int round)
 {
 	int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -49,7 +49,7 @@ __global__ void pool(unsigned char* image, unsigned char* new_image, unsigned wi
 			tr = image[(offset + 1) * 4 + k];
 			bl = image[(offset + width) * 4 + k];
 			br = image[(offset + width + 1) * 4 + k];
-
+			
 			max = 0;
 
 			if (tl > max) max = tl;

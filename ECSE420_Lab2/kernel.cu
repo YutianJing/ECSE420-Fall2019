@@ -8,14 +8,14 @@
 
 #include "lodepng.h"
 #include "wm.h"
-#define NUM_THREADS 2
+#define NUM_THREADS 1024
 #define wmDimension 3
 
-__global__ void convolve(unsigned char* image, unsigned char* new_image, unsigned width, unsigned height, int round, float w3[3][3], float w5[5][5], float w7[7][7])
+__global__ void convolve(unsigned char* image, unsigned char* new_image, unsigned width, unsigned height, int round, float* wm_dev)
 {
 	int i = blockIdx.x * blockDim.x + threadIdx.x;
-	unsigned char patch[wmDimension * wmDimension];
-	unsigned char sum;
+	float patch[wmDimension * wmDimension];
+	float sum;
 	unsigned offset;
 
 	if (i < NUM_THREADS) {
@@ -28,15 +28,13 @@ __global__ void convolve(unsigned char* image, unsigned char* new_image, unsigne
 				for (int j = 0; j < wmDimension * wmDimension; j++) {
 					patch[j] = image[(offset + width * (j / wmDimension) + (j - wmDimension * (j / wmDimension))) * 4 + k];
 
-					if (wmDimension == 3) patch[j] = patch[j] * w3[j / wmDimension][j - wmDimension * (j / wmDimension)];
-					if (wmDimension == 5) patch[j] = patch[j] * w5[j / wmDimension][j - wmDimension * (j / wmDimension)];
-					if (wmDimension == 7) patch[j] = patch[j] * w7[j / wmDimension][j - wmDimension * (j / wmDimension)];
-
+					patch[j] = patch[j] * wm_dev[j];
+					
 					sum += patch[j];
 				}
-				if (sum < 0) sum = 0;
-				if (sum > 255) sum = 255;
-				if (k == 3) sum = 1;
+				if (sum < 0.0) sum = 0;
+				if (sum > 255.0) sum = 255;
+				if (k == 3) sum = 255;
 
 				new_image[offset * 4 + k] = sum;
 			}
@@ -66,21 +64,32 @@ void imageConvolution(char* input_filename, char* output_filename)
 		image_dev[i] = image[i];
 	}
 	for (int i = 0; i < (width - wmDimension + 1) * (height - wmDimension + 1) * 4; i++) new_image[i] = 0;
+	
+	float* wm_dev;
+	cudaMallocManaged((void**)&wm_dev, wmDimension * wmDimension * sizeof(float));
+	for (int i = 0; i < wmDimension; i++) {
+		for (int j = 0; j < wmDimension; j++) {
+			if (wmDimension == 3) wm_dev[i * wmDimension + j] = w3[i][j];
+			if (wmDimension == 5) wm_dev[i * wmDimension + j] = w5[i][j];
+			if (wmDimension == 7) wm_dev[i * wmDimension + j] = w7[i][j];
+		}
+	}
 
 	int round = 0;
+	int numBlocks = (int)ceil(((double)NUM_THREADS + (double)1023) / (double)1024);
 	while (round < (width - wmDimension + 1) * (height - wmDimension + 1) / NUM_THREADS) {
-		convolve << <(int)ceil((NUM_THREADS + 1023) / 1024), 1024 >> > (image_dev, new_image, width, height, round, w3, w5, w7);
+		convolve << <numBlocks, 1024 >> > (image_dev, new_image, width, height, round, wm_dev);
 		round++;
 	}
-	//convolve << <(int)ceil((NUM_THREADS + 1023) / 1024), (height * width) % 1024 >> > (image_dev, new_image, width, height, round, w3, w5, w7);
+	//convolve << <numBlocks, (height * width) % 1024 >> > (image_dev, new_image, width, height, round, w3, w5, w7);
 
 	cudaDeviceSynchronize();
 	////////////////////////////////////////////////////////////////////////////////
 	end = clock();
 	printf("time=%f\n", (double)(end - start) / (double)CLOCKS_PER_SEC);
-
+	
 	lodepng_encode32_file(output_filename, new_image, (width - wmDimension + 1), (height - wmDimension + 1));
-	cudaFree(image); cudaFree(new_image); cudaFree(image_dev);
+	cudaFree(image); cudaFree(new_image); cudaFree(image_dev); cudaFree(wm_dev);
 	free(image);
 	//free(new_image);
 	//free(image_dev);
