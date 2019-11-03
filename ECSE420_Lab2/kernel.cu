@@ -8,18 +8,27 @@
 
 #include "lodepng.h"
 #include "wm.h"
+
+#include "A_3.h"
+#include "A_10.h"
 #include "A_32.h"
 #include "A_512.h"
 #include "A_1024.h"
+#include "b_3.h"
+#include "b_10.h"
 #include "b_32.h"
 #include "b_512.h"
 #include "b_1024.h"
+#include "X_32.h"
+#include "X_512.h"
+#include "X_1024.h"
 
-#include "A_3.h"
-#include "b_3.h"
 #define NUM_THREADS 1024
 #define wmSIZE 3
-#define matrixSIZE 3
+
+// do not set matrixSIZE to {32, 512, 1024}, since the inverse matrix method below is defined using matrixSIZE,
+// and they are using too much recursion, complexity is high, will take forever to run
+#define matrixSIZE 10
 
 float AInv[matrixSIZE][matrixSIZE];
 
@@ -99,7 +108,7 @@ void imageConvolution(char* input_filename, char* output_filename)
 	cudaDeviceSynchronize();
 	////////////////////////////////////////////////////////////
 	end = clock();
-	printf("time=%f\n", (double)(end - start) / (double)CLOCKS_PER_SEC);
+	printf("imageConvolution time spent = %f\n", (double)(end - start) / (double)CLOCKS_PER_SEC);
 	
 	lodepng_encode32_file(output_filename, new_image, (width - wmSIZE + 1), (height - wmSIZE + 1));
 	cudaFree(image); cudaFree(new_image); cudaFree(image_dev); cudaFree(wm_dev);
@@ -108,11 +117,11 @@ void imageConvolution(char* input_filename, char* output_filename)
 	//free(image_dev);
 }
 
-float getDet(float inputMatrix[matrixSIZE][matrixSIZE], int n)
+double getDet(double inputMatrix[matrixSIZE][matrixSIZE], int n)
 {
 	if (n == 1) return inputMatrix[0][0];
-	float ans = 0;
-	float temp[matrixSIZE][matrixSIZE];
+	double ans = 0;
+	double temp[matrixSIZE][matrixSIZE];
 	int i, j, k;
 	for (i = 0; i < n; i++) {
 		for (j = 0; j < n - 1; j++) {
@@ -120,7 +129,7 @@ float getDet(float inputMatrix[matrixSIZE][matrixSIZE], int n)
 				temp[j][k] = inputMatrix[j + 1][(k >= i) ? k + 1 : k];
 			}
 		}
-		float t = getDet(temp, n - 1);
+		double t = getDet(temp, n - 1);
 		if (i % 2 == 0) {
 			ans += inputMatrix[0][i] * t;
 		}
@@ -131,14 +140,14 @@ float getDet(float inputMatrix[matrixSIZE][matrixSIZE], int n)
 	return ans;
 }
 
-void getAStar(float inputMatrix[matrixSIZE][matrixSIZE], int n, float ans[matrixSIZE][matrixSIZE])
+void getAStar(double inputMatrix[matrixSIZE][matrixSIZE], int n, double ans[matrixSIZE][matrixSIZE])
 {
 	if (n == 1) {
 		ans[0][0] = 1;
 		return;
 	}
 	int i, j, k, t;
-	float temp[matrixSIZE][matrixSIZE];
+	double temp[matrixSIZE][matrixSIZE];
 	for (i = 0; i < n; i++) {
 		for (j = 0; j < n; j++) {
 			for (k = 0; k < n - 1; k++) {
@@ -154,10 +163,10 @@ void getAStar(float inputMatrix[matrixSIZE][matrixSIZE], int n, float ans[matrix
 	}
 }
 
-float inverse(float inputMatrix[matrixSIZE][matrixSIZE])
+double inverse(double inputMatrix[matrixSIZE][matrixSIZE])
 {
-	float AStar[matrixSIZE][matrixSIZE];
-	float det = getDet(inputMatrix, matrixSIZE);
+	double AStar[matrixSIZE][matrixSIZE];
+	double det = getDet(inputMatrix, matrixSIZE);
 	if (det == 0) { printf("The input matrix can not be transformed!\n"); }
 	else {
 		getAStar(inputMatrix, matrixSIZE, AStar);
@@ -177,23 +186,25 @@ __global__ void multiply_and_add(float* x, float* AInv_dev, float* b_dev)
 		for (int j = 0; j < matrixSIZE; j++) {
 			x[i] += AInv_dev[i * matrixSIZE + j % matrixSIZE] * b_dev[j];
 		}
+		printf("x[%d] = %f\n", i, x[i]);
 	}
 }
-
-void printArray(float* a, int n) { for (int i = 0; i < n; i++) { printf("x[%d] = %f\n", i, a[i]); } }
 
 void solve_Ax_equals_b()
 {	
 	////////////////////////////////////////////////// Question 2: Solve Ax = b
-	float A[matrixSIZE][matrixSIZE];
+	double A[matrixSIZE][matrixSIZE];
 	for (int i = 0; i < matrixSIZE; i++) {
 		for (int j = 0; j < matrixSIZE; j++) {
 			if (matrixSIZE == 3) A[i][j] = A_3[i][j];
+			if (matrixSIZE == 10) A[i][j] = A_10[i][j];
 			if (matrixSIZE == 32) A[i][j] = A_32[i][j];
 			if (matrixSIZE == 512) A[i][j] = A_512[i][j];
 			if (matrixSIZE == 1024) A[i][j] = A_1024[i][j];
 		}
 	}
+
+	// inverse of a 32x32 matrix takes too long
 	inverse(A); // now the inverse is stored in AInv
 
 	cudaSetDevice(0);
@@ -201,7 +212,12 @@ void solve_Ax_equals_b()
 	float* x;
 	x = (float*)malloc(matrixSIZE * sizeof(float));
 	cudaMallocManaged((void**)&x, matrixSIZE * sizeof(float));
-	for (int i = 0; i < matrixSIZE; i++) x[i] = 0;
+	for (int i = 0; i < matrixSIZE; i++) {
+		if (matrixSIZE == 32) x[i] = X_32[i][0];
+		if (matrixSIZE == 512) x[i] = X_512[i][0];
+		if (matrixSIZE == 1024) x[i] = X_1024[i][0];
+		else x[i] = 0;
+	}
 
 	float* AInv_dev;
 	cudaMallocManaged((void**)&AInv_dev, matrixSIZE * matrixSIZE * sizeof(float));
@@ -215,6 +231,7 @@ void solve_Ax_equals_b()
 	cudaMallocManaged((void**)&b_dev, matrixSIZE * sizeof(float));
 	for (int i = 0; i < matrixSIZE; i++) {
 		if (matrixSIZE == 3) b_dev[i] = b_3[i][0];
+		if (matrixSIZE == 10) b_dev[i] = b_10[i][0];
 		if (matrixSIZE == 32) b_dev[i] = b_32[i][0];
 		if (matrixSIZE == 512) b_dev[i] = b_512[i][0];
 		if (matrixSIZE == 1024) b_dev[i] = b_1024[i][0];
@@ -224,7 +241,19 @@ void solve_Ax_equals_b()
 
 	cudaDeviceSynchronize();
 
-	printArray(x, matrixSIZE);
+	float A_times_x[matrixSIZE];
+	for (int i = 0; i < matrixSIZE; i++) {
+		A_times_x[i] = 0;
+		for (int j = 0; j < matrixSIZE; j++) {
+			if (matrixSIZE == 32) A_times_x[i] += A[i][j] * X_32[j][0];
+			if (matrixSIZE == 512) A_times_x[i] += A[i][j] * X_512[j][0];
+			if (matrixSIZE == 1024) A_times_x[i] += A[i][j] * X_1024[j][0];
+			else A_times_x[i] += A[i][j] * x[j];
+		}
+	}
+	for (int i = 0; i < matrixSIZE; i++) {
+		printf("A[%d][:] * x[:] - b[%d] = %f\n", i, i, A_times_x[i] - b_dev[i]);
+	}
 
 	cudaFree(AInv_dev); cudaFree(b_dev); cudaFree(x);
 }
@@ -236,9 +265,9 @@ int main()
 	char* output_filename_convolution5 = "test convolve 5x5.png";
 	char* output_filename_convolution7 = "test convolve 7x7.png";
 
-	/*if (wmSIZE == 3) imageConvolution(input_filename, output_filename_convolution3);
+	if (wmSIZE == 3) imageConvolution(input_filename, output_filename_convolution3);
 	if (wmSIZE == 5) imageConvolution(input_filename, output_filename_convolution5);
-	if (wmSIZE == 7) imageConvolution(input_filename, output_filename_convolution7);*/
+	if (wmSIZE == 7) imageConvolution(input_filename, output_filename_convolution7);
 	
 	solve_Ax_equals_b();
 

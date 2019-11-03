@@ -81,16 +81,21 @@
     <CudaCompile Include="lodepng.cu" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="A_10.h" />
     <ClInclude Include="A_1024.h" />
     <ClInclude Include="A_3.h" />
     <ClInclude Include="A_32.h" />
     <ClInclude Include="A_512.h" />
+    <ClInclude Include="b_10.h" />
     <ClInclude Include="b_1024.h" />
     <ClInclude Include="b_3.h" />
     <ClInclude Include="b_32.h" />
     <ClInclude Include="b_512.h" />
     <ClInclude Include="lodepng.h" />
     <ClInclude Include="wm.h" />
+    <ClInclude Include="X_1024.h" />
+    <ClInclude Include="X_32.h" />
+    <ClInclude Include="X_512.h" />
   </ItemGroup>
   <ItemGroup>
     <Image Include="test.png" />
