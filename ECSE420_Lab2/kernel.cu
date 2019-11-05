@@ -23,7 +23,7 @@
 #include "X_512.h"
 #include "X_1024.h"
 
-#define NUM_THREADS 1024
+#define NUM_THREADS 8
 #define wmSIZE 3
 
 // do not set matrixSIZE to {32, 512, 1024}, since the inverse matrix method below is defined using matrixSIZE,
@@ -179,14 +179,16 @@ double inverse(double inputMatrix[matrixSIZE][matrixSIZE])
 	return 0;
 }
 
-__global__ void multiply_and_add(float* x, float* AInv_dev, float* b_dev)
+__global__ void multiply_and_add(float* x, float* AInv_dev, float* b_dev, int round)
 {
 	int i = blockIdx.x * blockDim.x + threadIdx.x;
+	unsigned offset;
 	if (i < NUM_THREADS) {
+		offset = round * NUM_THREADS + i;
 		for (int j = 0; j < matrixSIZE; j++) {
-			x[i] += AInv_dev[i * matrixSIZE + j % matrixSIZE] * b_dev[j];
+			x[offset] += AInv_dev[offset * matrixSIZE + j % matrixSIZE] * b_dev[j];
 		}
-		printf("x[%d] = %f\n", i, x[i]);
+		printf("x[%d] = %f\n", offset, x[offset]);
 	}
 }
 
@@ -237,8 +239,12 @@ void solve_Ax_equals_b()
 		if (matrixSIZE == 1024) b_dev[i] = b_1024[i][0];
 	}
 	
-	multiply_and_add << <1, matrixSIZE >> > (x, AInv_dev, b_dev);
-
+	int round = 0;
+	while (round < (int)ceil((double)matrixSIZE / (double)NUM_THREADS)) {
+		multiply_and_add << <1, matrixSIZE >> > (x, AInv_dev, b_dev, round);
+		round++;
+	}
+	
 	cudaDeviceSynchronize();
 
 	float A_times_x[matrixSIZE];
